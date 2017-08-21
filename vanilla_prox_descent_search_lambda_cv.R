@@ -1,5 +1,6 @@
 rm(list = ls())
 library(h2o)
+library(gsocIntegrate2)
 
 # negative log likelihood of exponential distribution
 
@@ -12,6 +13,7 @@ ExpNegativeLogLikelihood = function(x, params) {
 
 GradExpNegativeLogLikelihood = function(x, params) {
         tmp = -t(params[["A"]]) %*% (exp(-params[["A"]] %*% x) * params[["b"]] - 1)
+        return(tmp)
 }
 
 # proximal of L1 regularizer
@@ -40,7 +42,7 @@ ObjFun = function(x,
                   params,
                   SmoothFun = ExpNegativeLogLikelihood,
                   regularizer = regularizer_ENet) {
-        return(SmoothFun(x, params) + 
+        return(SmoothFun(x, params) +
                        params[["lambda"]] * regularizer(x, params[["alpha"]]))
 }
 
@@ -74,7 +76,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd = function(A,
         beta = beta
         max_iter = maxiter
         ABSTOL   = ABSTOL
-        
+
         # save algorithm state
         nvars = ncol(A)
         x_matrix = matrix(0, nrow = max_iter, ncol = nvars)
@@ -83,14 +85,14 @@ fit_glmnet_fixed_lambda_vanilla_pgd = function(A,
         lhs_vector = rep(NA, max_iter)
         rhs_vector = rep(NA, max_iter)
         obj_vector = rep(NA, max_iter)
-        
+
         x = x0
         xprev = x
-        
+
         for (k in 1:max_iter) {
                 while (TRUE) {
                         grad_x = GradExpNegativeLogLikelihood(x, params)
-                        threshold = prox.lambda * params[["lambda"]] * params[["alpha"]] / 
+                        threshold = prox.lambda * params[["lambda"]] * params[["alpha"]] /
                                 (1+prox.lambda * params[["lambda"]]*(1-params[["alpha"]]))
                         z = prox_L1(x - prox.lambda * grad_x, threshold)
                         lhs = ExpNegativeLogLikelihood(z, params)
@@ -102,7 +104,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd = function(A,
                         }
                         prox.lambda = beta * prox.lambda
                 }
-                
+
                 xprev = x
                 x = z
                 x_matrix[k, ] = xprev
@@ -110,7 +112,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd = function(A,
                 grad_x_matrix[k, ] = grad_x
                 lhs_vector[k] = lhs
                 rhs_vector[k] = rhs
-                
+
                 obj_vector[k] = ObjFun(x, params)
                 if (k > 1)
                         if (abs(obj_vector[k] - obj_vector[k - 1]) < ABSTOL) {
@@ -122,7 +124,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd = function(A,
         grad_x_matrix = grad_x_matrix[1:k, ]
         lhs_vector = lhs_vector[1:k]
         rhs_vector = rhs_vector[1:k]
-        
+
         obj_vector
         grad_x_matrix
         lhs_vector
@@ -143,7 +145,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd_cv = function(A,
                                            t = 1,
                                            beta = 1/2,
                                            kfold = 5){
-        
+
         res = list()
         for(ii in 1:kfold){
                 train.idx = sample(nrow(A), floor((1 - 1/kfold) * nrow(A)))
@@ -172,7 +174,7 @@ fit_glmnet_fixed_lambda_vanilla_pgd_cv = function(A,
                 ) # the regularization coefficient
                 b.pred = predict_exp_glmnet(x.pred, params)
                 rse = sqrt(sum((b.pred - b.test)^2))
-                res[[ii]] = list(x.pred = x.pred, A.test = A.test, b.test = b.test, 
+                res[[ii]] = list(x.pred = x.pred, A.test = A.test, b.test = b.test,
                                  b.pred = b.pred, rse = rse,
                                  A.train = A.train, b.train = b.train)
         }
@@ -254,7 +256,7 @@ find_lambda_max = function(A,
 
 # generate vector of candidate lambdas
 
-generate_lambda_grid = function(A, b, alpha, 
+generate_lambda_grid = function(A, b, alpha,
                                 n.lambda = 100,
                                 min.lambda.ratio = 1e-4
                                 ){
@@ -265,10 +267,10 @@ generate_lambda_grid = function(A, b, alpha,
 
 
 ######### generate test data
-set.seed(20170818)
+set.seed(20170820)
 
 nobs = 50
-nvars = 5
+nvars = 7
 
 x.true = rnorm(nvars)
 x.true[sample(2:nvars, floor(nvars / 2) - 1)] = 0
@@ -337,13 +339,12 @@ fit.pgd = fit_glmnet_fixed_lambda_vanilla_pgd(A, b, alpha = alpha,
 fit.pgd.cv = fit_glmnet_fixed_lambda_vanilla_pgd_cv(A, b, alpha = alpha,
                                               lambda = lasso.lambda/10)
 
-fit.pgd.cv$
+fit.pgd.cv$rmse
 
 ### use R implementation of vanilla pgd and cross validation
 
 fit.pgd.search.cv = fit_glmnet_search_lambda_vanilla_pgd_cv(A, b, alpha = alpha)
 min(fit.pgd.search.cv$rmse)
-fit.pgd.search.cv$rmse[56]
 fit.pgd.search.cv$best.x
 fit.pgd.search.cv$best.idx
 x.true
@@ -390,15 +391,15 @@ for(i in 1:length(enet_lambdas)){
         enet_lambda = enet_lambdas[i]
         params[["lambda"]] = enet_lambda
         ### use R implementation of vanilla pgd
-        
+
         fit.pgd = fit_glmnet_fixed_lambda_vanilla_pgd(A, b, alpha = alpha,
                                                       lambda = enet_lambda)
         mse.pgd = sum((predict_exp_glmnet(fit.pgd, params) - b)^2)
-        
+
         ### use bfgs
         fit.bfgs = optim(rep(0, nvars), ObjFun, params = params, method = "BFGS")$par
         mse.bfgs = sum((predict_exp_glmnet(fit.bfgs, params) - b)^2)
-        
+
         ###use h2o
         x.h2o.df = as.h2o(data.frame(b, A))
         predictors = colnames(x.h2o.df)[-1]
@@ -418,7 +419,7 @@ for(i in 1:length(enet_lambdas)){
         )
         fit.h2o = my.glm.lasso@model$coefficients
         mse.h2o = sum((predict_exp_glmnet(fit.h2o, params) - b)^2)
-        
+
         mse_matrix[i,] = c(mse.pgd, mse.bfgs, mse.pgd)
 }
 mse_matrix
@@ -466,3 +467,115 @@ data.frame(
         x_prox_cv = fit.pgd.search.cv$best.x
 )
 h2o.shutdown(FALSE)
+
+### test cpp NLL of exp
+ExpNegativeLogLikelihood(x.true, params)
+ExpNegativeLogLikelihood_cpp(x.true, params[["A"]], params[["b"]])
+
+
+### test cpp gradient of NLL of exp
+GradExpNegativeLogLikelihood(x.true, params)
+GradExpNegativeLogLikelihood_cpp(x.true, params[["A"]], params[["b"]])
+
+### test fit glmnet_cpp with fixed lambda
+fit.pgd = fit_glmnet_fixed_lambda_vanilla_pgd(params[["A"]], params[["b"]],
+                                              alpha = params[["alpha"]],
+                                              lambda = enet_lambdas[best.idx])
+fit.pgd
+ProxGradDescent_cpp(params[["A"]], params[["b"]],
+                    enet_lambdas[best.idx], params[["alpha"]])
+x.true
+
+
+### test fit glmnet_cpp with lambda searching
+fit.pgd.cpp = fitGlmCv(params[["A"]], params[["b"]],
+         alpha = params[["alpha"]])
+
+data.frame(
+  x_true = x.true,
+  x_prox = fit.pgd,
+  x_bfgs = fit.bfgs,
+  x_h2o = fit.h2o,
+  x_prox_cv = fit.pgd.search.cv$best.x,
+  x_prox_cv_cpp = fit.pgd.cpp
+)
+
+library(microbenchmark)
+
+params_list = list()
+for(j in 1:2){
+A = NULL
+for(i in 0:(nvars - 1)){
+  A = cbind(A, seq(0.5/nobs, 0.5, by = 0.5/nobs)^i)
+}
+
+
+exp.lambdas = exp(-A %*% x.true)
+b = sapply(exp.lambdas, function(x)
+  rexp(1, x))
+
+####### set parameters
+alpha = 0.5
+lasso.lambda = 0.1
+params_list[[j]] = list(
+  b = b,
+  # The response variables
+  A = A,
+  # The matrix
+  alpha = alpha,
+  # 1 means lasso
+  lambda = lasso.lambda
+) # the regularization coefficient
+}
+str(params_list)
+
+r_start = Sys.time()
+r_res_list = lapply(params_list,
+       function(x)
+                fit_glmnet_search_lambda_vanilla_pgd_cv(x[["A"]], x[["b"]])$best.x)
+r_end = Sys.time()
+r_time = r_end - r_start
+
+cpp_start = Sys.time()
+cpp_res_list = lapply(params_list,
+       function(x)
+         fitGlmCv(x[["A"]], x[["b"]], x[["alpha"]]))
+cpp_end = Sys.time()
+cpp_time = cpp_end - cpp_start
+c(r_time, cpp_time)
+
+h2o.init()
+
+h2o_start = Sys.time()
+
+h2o_res_list = lapply(params_list,
+                      function(dat){
+
+b = dat[["b"]]
+A = dat[["A"]]
+alpha = dat[["alpha"]]
+x.h2o.df = as.h2o(data.frame(b, A))
+predictors = colnames(x.h2o.df)[-1]
+response = colnames(x.h2o.df)[1]
+my.glm.lasso = h2o.glm(
+  x = predictors,
+  y = response,
+  family = 'gamma',
+  intercept = TRUE,
+  training_frame = x.h2o.df,
+  ignore_const_cols = TRUE,
+  link = "log",
+  #        lambda = enet_lambda,
+  lambda_search = TRUE,
+  alpha = alpha,
+  standardize = FALSE
+)
+return(my.glm.lasso@model$coefficients)
+                      }
+)
+h2o_end = Sys.time()
+h2o_time = h2o_end - h2o_start
+h2o_time
+h2o_res_list
+cpp_res_list
+x.true

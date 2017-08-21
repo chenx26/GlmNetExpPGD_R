@@ -503,7 +503,7 @@ data.frame(
 library(microbenchmark)
 
 params_list = list()
-for(j in 1:2){
+for(j in 1:20){
 A = NULL
 for(i in 0:(nvars - 1)){
   A = cbind(A, seq(0.5/nobs, 0.5, by = 0.5/nobs)^i)
@@ -576,6 +576,20 @@ return(my.glm.lasso@model$coefficients)
 h2o_end = Sys.time()
 h2o_time = h2o_end - h2o_start
 h2o_time
+cpp_time
+r_time
 h2o_res_list
 cpp_res_list
 x.true
+
+compute_mean_vector = function(data_list){
+  tmp_mat = matrix(unlist(data_list), nrow = length(data_list[[1]]))
+  apply(tmp_mat, 1, mean)
+}
+mean_r_res = compute_mean_vector(r_res_list)
+mean_cpp_res = compute_mean_vector(cpp_res_list)
+mean_h2o_res = compute_mean_vector(h2o_res_list)
+data.frame(x.true = x.true,
+           x.r = mean_r_res,
+           x.h2o = mean_h2o_res,
+           x.cpp = mean_cpp_res)
